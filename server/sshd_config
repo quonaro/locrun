@@ -1,7 +1,5 @@
 ListenAddress 0.0.0.0
 Port 22
-
-Match User appuser
-    AllowTcpForwarding yes
-    GatewayPorts yes
-    ForceCommand /usr/bin/python3 /app/handler.py
+AllowTcpForwarding yes
+GatewayPorts yes
+ForceCommand /usr/bin/python3 /app/handler.py
