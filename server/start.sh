@@ -1,27 +1,40 @@
 #!/bin/bash
 set -e
 
-# 1. Валидация
+# 1. Валидация окружения
 if [ -z "$BASE_DOMAIN" ]; then
-    echo "❌ ERROR: BASE_DOMAIN is not set in environment!"
+    echo "❌ FATAL: BASE_DOMAIN environment variable is required."
     exit 1
 fi
 
-# 2. Генерация ключей хоста, если их нет (сохраняются в volume)
-if [ ! -f "/etc/ssh/keys/ssh_host_rsa_key" ]; then
-    echo "🔑 Generating new SSH host keys..."
+# 2. Подготовка SSH-ключей хоста
+# Если ключи не смонтированы через Volume, генерируем их при старте
+if [ ! -f "/etc/ssh/ssh_host_rsa_key" ]; then
+    echo "🔑 Generating SSH host keys..."
     ssh-keygen -A
-    mv /etc/ssh/ssh_host_* /etc/ssh/keys/
 fi
-# Симлинки, чтобы sshd их нашел
-ln -sf /etc/ssh/keys/ssh_host_* /etc/ssh/
 
-# 3. FIX: Проброс переменных окружения в SSH
-# Без этого handler.py внутри SSH-сессии не увидит BASE_DOMAIN
-printenv | grep -E "BASE_DOMAIN|PORT|DEBUG" > /etc/environment
+# 3. Решение проблемы переменных окружения для SSH
+# Когда пользователь зайдет по SSH, его процесс (handler.py) 
+# должен видеть BASE_DOMAIN. Записываем их в системный файл.
+echo "📝 Exporting environment variables for SSH sessions..."
+printenv | grep -E "BASE_DOMAIN|CADDY|CHECK_PORT" > /etc/environment
 
-echo "🚀 Starting Caddy..."
-caddy start --config /etc/caddy/Caddyfile
+# 4. Запуск Caddy в фоне
+echo "🚀 Starting Caddy (API on localhost:2019)..."
+caddy start --config /etc/caddy/Caddyfile --adapter caddyfile
 
-echo "🔌 Starting SSHD..."
+# 5. Запуск SSH-сервера
+# Запускаем в фоне, чтобы скрипт мог идти дальше
+echo "🔌 Starting SSHD on port ${SSH_PORT:-22}..."
 /usr/sbin/sshd
+
+echo "----------------------------------------------------"
+echo "✅ LocRun Gateway is UP and Running!"
+echo "📍 Base Domain: $BASE_DOMAIN"
+echo "----------------------------------------------------"
+
+# 6. Удержание контейнера (Keep-alive)
+# Вместо запуска handler.py здесь, мы просто заставляем скрипт ждать.
+# Это не ест ресурсы и не дает Docker завершить работу контейнера.
+exec tail -f /dev/null
