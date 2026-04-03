@@ -45,8 +45,8 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
     echo 'echo "📡 Server Information:"' >> /app/start.sh && \
     echo 'echo "   Domain: *.$BASE_DOMAIN"' >> /app/start.sh && \
-    echo 'echo "   HTTPS Port: 443"' >> /app/start.sh && \
-    echo 'echo "   SSH Port: 22"' >> /app/start.sh && \
+    echo 'echo "   HTTPS Port: ${HTTPS_PORT:-443}"' >> /app/start.sh && \
+    echo 'echo "   SSH Port: ${SSH_PORT:-22}"' >> /app/start.sh && \
     echo 'IP=$(curl -s ifconfig.me || echo "unknown")' >> /app/start.sh && \
     echo 'INTERNAL_IP=$(hostname -i | awk "{print \$1}")' >> /app/start.sh && \
     echo 'echo "   External IP: $IP"' >> /app/start.sh && \
