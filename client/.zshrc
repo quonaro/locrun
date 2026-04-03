@@ -13,5 +13,5 @@ locrun() {
     # -C: compression
     # -R: reverse port forwarding
     # 127.0.0.1: avoid IPv6 issues
-    ssh -C -R 0:127.0.0.1:$port tun@example.com
+    ssh -C -R 0:127.0.0.1:$port appuser@example.com
 }

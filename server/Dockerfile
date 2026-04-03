@@ -36,7 +36,7 @@ COPY Caddyfile /etc/caddy/Caddyfile
 RUN mkdir -p /var/log/caddy
 
 # Expose ports
-EXPOSE 80 443 2019 8080
+EXPOSE 80 443 2019 8080 22
 
 # Create startup script
 RUN echo '#!/bin/sh' > /app/start.sh && \
