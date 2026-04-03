@@ -12,6 +12,7 @@ GatewayPorts yes
 TCPKeepAlive yes
 ClientAliveInterval 30
 ClientAliveCountMax 3
+PermitUserEnvironment yes
 
 Match User tun
     PermitEmptyPasswords yes

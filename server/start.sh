@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Очищаем и записываем все переменные окружения, которые есть у Docker
+# Исключаем служебные переменные, чтобы не было конфликтов
+printenv | grep -vE '^(HOME|PWD|SHELL|USER|LS_COLORS|TERMCAP)=' > /etc/environment
+
+# ВАЖНО: Даем права на чтение, иначе юзер tun не сможет их подтянуть
+chmod 644 /etc/environment
+
 # 1. Валидация окружения
 if [ -z "$BASE_DOMAIN" ]; then
     echo "❌ FATAL: BASE_DOMAIN environment variable is required."
