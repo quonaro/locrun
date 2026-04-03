@@ -4,6 +4,7 @@ FROM caddy:2.8-alpine
 RUN apk add --no-cache \
     python3 \
     py3-pip \
+    py3-requests \
     openssh-client \
     openssh-server \
     bash \
