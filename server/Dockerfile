@@ -27,7 +27,7 @@ WORKDIR /app
 
 # Copy application files
 COPY handler.py .
-COPY sshd_config /etc/ssh/sshd_config.d/custom.conf
+COPY sshd_config /etc/ssh/sshd_config
 
 # Copy Caddy configuration
 COPY Caddyfile /etc/caddy/Caddyfile
