@@ -25,7 +25,3 @@ caddy start --config /etc/caddy/Caddyfile
 
 echo "🔌 Starting SSHD..."
 /usr/sbin/sshd
-
-echo "🐍 Running Handler..."
-# Запускаем python как основной процесс
-exec python3 /app/handler.py
