@@ -10,12 +10,13 @@ RUN apk add --no-cache \
     iproute2 \
     curl \
     shadow \
+    openssl \
     && rm -rf /var/cache/apk/*
 
 # Create appuser with random password
 RUN adduser -D -s /bin/bash appuser && \
     PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16) && \
-    echo "appuser:$PASSWORD" | chpasswd && \
+    echo "appuser:$(echo $PASSWORD | openssl passwd -stdin -1)" | chpasswd -e && \
     echo "Generated password for appuser: $PASSWORD" && \
     echo "$PASSWORD" > /tmp/appuser_password && \
     mkdir -p /home/appuser/.ssh && \
