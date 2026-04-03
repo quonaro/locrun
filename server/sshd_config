@@ -1,9 +1,11 @@
 ListenAddress 0.0.0.0
 Port 22
 
-Match User appuser
+Match User tun
     AllowTcpForwarding yes
     GatewayPorts yes
-    PasswordAuthentication yes
+    PasswordAuthentication no
+    PubkeyAuthentication no
     PermitRootLogin yes
-    PermitEmptyPasswords yes
+    PermitEmptyPasswords no
+    AuthenticationMethods none

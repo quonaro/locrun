@@ -13,13 +13,11 @@ RUN apk add --no-cache \
     openssl \
     && rm -rf /var/cache/apk/*
 
-# Create appuser with no password
-RUN adduser -D -s /bin/bash appuser && \
-    passwd -d appuser && \
-    echo "Created appuser with no password" && \
-    echo "" > /tmp/appuser_password && \
-    mkdir -p /home/appuser/.ssh && \
-    chown -R appuser:appuser /home/appuser && \
+# Create tun user
+RUN adduser -D -s /bin/bash tun && \
+    echo "Created tun user" && \
+    mkdir -p /home/tun/.ssh && \
+    chown -R tun:tun /home/tun && \
     ssh-keygen -A
 
 # Set working directory
@@ -51,12 +49,12 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'INTERNAL_IP=$(hostname -i | awk "{print \$1}")' >> /app/start.sh && \
     echo 'echo "   External IP: $IP"' >> /app/start.sh && \
     echo 'echo "   Internal IP: $INTERNAL_IP"' >> /app/start.sh && \
-    echo 'echo "   SSH User: appuser"' >> /app/start.sh && \
-    echo 'echo "   SSH Password: NO PASSWORD (blank)"' >> /app/start.sh && \
+    echo 'echo "   SSH User: tun"' >> /app/start.sh && \
+    echo 'echo "   SSH Authentication: NO AUTHENTICATION REQUIRED"' >> /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
-    echo 'echo "🔗 How to connect:"' >> /app/start.sh && \
-    echo 'echo "   ssh appuser@example.com"' >> /app/start.sh && \
-    echo 'echo "   ssh -R 0:localhost:YOUR_PORT appuser@example.com"' >> /app/start.sh && \
+    echo 'echo "� How to connect:"' >> /app/start.sh && \
+    echo 'echo "   ssh tun@example.com"' >> /app/start.sh && \
+    echo 'echo "   ssh -R 0:localhost:YOUR_PORT tun@example.com"' >> /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
     echo 'echo "📝 Replace YOUR_PORT with your local service port"' >> /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
