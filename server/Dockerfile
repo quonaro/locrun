@@ -15,7 +15,7 @@ RUN apk add --no-cache \
 
 # Create appuser with no password
 RUN adduser -D -s /bin/bash appuser && \
-    echo "appuser:" | chpasswd && \
+    passwd -d appuser && \
     echo "Created appuser with no password" && \
     echo "" > /tmp/appuser_password && \
     mkdir -p /home/appuser/.ssh && \
