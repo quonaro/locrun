@@ -1,0 +1,12 @@
+services:
+  locrun-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: locrun-server
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+      - "${SSH_PORT:-22}:22"
+    environment:
+      BASE_DOMAIN: example.com
+    restart: unless-stopped

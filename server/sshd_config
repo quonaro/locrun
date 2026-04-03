@@ -1,0 +1,4 @@
+Match User appuser
+    AllowTcpForwarding yes
+    GatewayPorts yes
+    ForceCommand /usr/bin/python3 /app/handler.py
