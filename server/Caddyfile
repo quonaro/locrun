@@ -1,18 +1,27 @@
 {
 	admin localhost:2019
+	# Настройка On-Demand TLS: Caddy спросит у Python, можно ли выписывать SSL
 	on_demand_tls {
-		ask http://localhost:8080/check
+		ask http://127.0.0.1:8080/check
 	}
 }
 
-https://*.{$BASE_DOMAIN} {
+# Мы убираем *, оставляем обработку всех входящих HTTPS запросов
+https:// {
 	tls {
 		on_demand
 	}
+
+	# Логирование
 	log {
 		output file /var/log/caddy/access.log
 	}
+
+	# Важно: Caddy сам по себе ничего не проксирует. 
+	# Роуты (reverse_proxy) будут добавляться ДИНАМИЧЕСКИ через Python API (manage_caddy)
 	handle {
+		# Если для этого хоста Python еще не создал динамический роут через API,
+		# то запрос попадет сюда и будет сброшен.
 		abort
 	}
 }

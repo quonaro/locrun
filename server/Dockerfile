@@ -1,42 +1,33 @@
-FROM caddy:2.8-alpine AS caddy-builder
+FROM caddy:2.8-alpine
 
+# Устанавливаем зависимости + tini
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-requests \
     openssh-client \
     openssh-server \
-    iproute2 \
-    curl \
-    shadow \
-    openssl \
     bash \
+    tini \
     && rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
+# Создаем пользователя и необходимые директории
+RUN adduser -D -s /bin/bash tun && \
+    passwd -d tun && \
+    mkdir -p /home/tun/.ssh /run/sshd /etc/ssh/keys && \
+    chown -R tun:tun /home/tun
+
+# Копируем конфиги
 COPY handler.py .
 COPY sshd_config /etc/ssh/sshd_config
 COPY Caddyfile /etc/caddy/Caddyfile
+COPY start.sh /app/start.sh
 
-RUN chmod +x handler.py && \
-    adduser -D -s /bin/bash tun && \
-    passwd -d tun && \
-    mkdir -p /home/tun/.ssh && \
-    chown -R tun:tun /home/tun /app && \
-    ssh-keygen -A
+RUN chmod +x /app/start.sh /app/handler.py
 
-RUN mkdir -p /var/log/caddy /run/sshd && \
-    chmod 0755 /run/sshd
+# Открываем порты (22 — внутренний для контейнера)
+EXPOSE 80 443 22
 
-RUN printf '#!/bin/sh\n\
-    echo "🚀 Starting LocRun Server (No Password Mode)..."\n\
-    /usr/sbin/sshd\n\
-    caddy start --config /etc/caddy/Caddyfile > /var/log/caddy/caddy.log 2>&1\n\
-    echo "⚡ Services are running."\n\
-    exec python3 /app/handler.py\n\
-    ' > /app/start.sh && chmod +x /app/start.sh
-
-EXPOSE 80 443 2019 22
-
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["/app/start.sh"]
