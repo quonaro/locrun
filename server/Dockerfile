@@ -57,12 +57,13 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'echo "   SSH Password: $PASSWORD"' >> /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
     echo 'echo "🔗 How to connect:"' >> /app/start.sh && \
-    echo 'echo "   ssh -R 0:localhost:YOUR_PORT -p 22 appuser@example.com"' >> /app/start.sh && \
+    echo 'echo "   ssh appuser@example.com"' >> /app/start.sh && \
+    echo 'echo "   ssh -R 0:localhost:YOUR_PORT appuser@example.com"' >> /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
     echo 'echo "📝 Replace YOUR_PORT with your local service port"' >> /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
     echo 'echo "⚡ Starting services..."' >> /app/start.sh && \
-    echo '/usr/sbin/sshd &' >> /app/start.sh && \
+    echo '/usr/sbin/sshd -D &' >> /app/start.sh && \
     echo 'caddy run --config /etc/caddy/Caddyfile --log-level ERROR > /dev/null 2>&1 &' >> /app/start.sh && \
     echo 'python3 /app/handler.py' >> /app/start.sh && \
     chmod +x /app/start.sh
