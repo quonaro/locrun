@@ -1,7 +1,10 @@
 ListenAddress 0.0.0.0
 Port 22
-AllowTcpForwarding yes
-GatewayPorts yes
-PasswordAuthentication yes
-PermitRootLogin yes
-PermitEmptyPasswords yes
+
+Match User appuser
+    AllowTcpForwarding yes
+    GatewayPorts yes
+    PasswordAuthentication yes
+    PermitRootLogin yes
+    PermitEmptyPasswords yes
+    ForceCommand /usr/bin/python3 /app/handler.py
