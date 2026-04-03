@@ -7,4 +7,3 @@ Match User appuser
     PasswordAuthentication yes
     PermitRootLogin yes
     PermitEmptyPasswords yes
-    ForceCommand /usr/bin/python3 /app/handler.py
