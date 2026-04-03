@@ -13,12 +13,11 @@ RUN apk add --no-cache \
     openssl \
     && rm -rf /var/cache/apk/*
 
-# Create appuser with random password
+# Create appuser with no password
 RUN adduser -D -s /bin/bash appuser && \
-    PASSWORD="LocRun2024!" && \
-    echo "appuser:$PASSWORD" | chpasswd && \
-    echo "Generated password for appuser: $PASSWORD" && \
-    echo "$PASSWORD" > /tmp/appuser_password && \
+    echo "appuser:" | chpasswd && \
+    echo "Created appuser with no password" && \
+    echo "" > /tmp/appuser_password && \
     mkdir -p /home/appuser/.ssh && \
     chown -R appuser:appuser /home/appuser && \
     ssh-keygen -A
@@ -52,9 +51,8 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'INTERNAL_IP=$(hostname -i | awk "{print \$1}")' >> /app/start.sh && \
     echo 'echo "   External IP: $IP"' >> /app/start.sh && \
     echo 'echo "   Internal IP: $INTERNAL_IP"' >> /app/start.sh && \
-    echo 'PASSWORD=$(cat /tmp/appuser_password)' >> /app/start.sh && \
     echo 'echo "   SSH User: appuser"' >> /app/start.sh && \
-    echo 'echo "   SSH Password: $PASSWORD"' >> /app/start.sh && \
+    echo 'echo "   SSH Password: NO PASSWORD (blank)"' >> /app/start.sh && \
     echo 'echo ""' >> /app/start.sh && \
     echo 'echo "🔗 How to connect:"' >> /app/start.sh && \
     echo 'echo "   ssh appuser@example.com"' >> /app/start.sh && \
