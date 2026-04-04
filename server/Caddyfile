@@ -1,4 +1,7 @@
 {
+	servers {
+		protocols h1 h2
+	}
 	admin localhost:2019
 	# Настройка On-Demand TLS: Caddy спросит у Python, можно ли выписывать SSL
 	on_demand_tls {
@@ -10,9 +13,8 @@
 https:// {
 	tls {
 		on_demand
-	}                                             
+	}
 
-	protocols h1 h2
 	# Логирование
 	log {
 		output file /var/log/caddy/access.log
