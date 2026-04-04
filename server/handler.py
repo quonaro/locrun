@@ -170,6 +170,7 @@ def main():
         print(f"🔗 URL: https://{current_session_domain}")
         print(f"🛠  Forwarding: localhost:{port} -> Remote")
         print(f"{'=' * 50}\n")
+        sys.stdout.flush()
     else:
         print("❌ Failed to register route in Caddy. Check admin API.")
         sys.exit(1)
@@ -184,6 +185,8 @@ def main():
     signal.signal(signal.SIGTERM, cleanup)
 
     # Держим процесс живым, пока жива SSH-сессия
+    print("🔄 Keeping connection alive... (Press Ctrl+C to disconnect)")
+    sys.stdout.flush()
     try:
         while True:
             # Проверка: если родитель (sshd) умер — выходим

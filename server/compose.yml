@@ -9,4 +9,9 @@ services:
     ports:
       - "${HTTPS_PORT:-443}:443"
       - "${SSH_PORT:-22}:22"
+    volumes:
+      - ssh_keys:/home/tun/.ssh/
     restart: unless-stopped
+
+volumes:
+  ssh_keys:
