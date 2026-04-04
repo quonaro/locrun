@@ -6,9 +6,6 @@ import time
 import subprocess
 import requests
 import signal
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
 
 # --- Конфигурация из окружения ---
 BASE_DOMAIN = os.getenv("BASE_DOMAIN")
@@ -19,36 +16,21 @@ if not BASE_DOMAIN:
     print("❌ FATAL: BASE_DOMAIN environment variable is required")
     sys.exit(1)
 
-# Глобальная переменная для текущего активного домена сессии
-# (Нужна для проверки в SSLCheckHandler)
-current_session_domain = None
 
-
-# --- Сервер проверки для On-Demand TLS ---
-class SSLCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        # Caddy шлет запрос: /check?domain=uuid.example.com
-        parsed_path = urlparse(self.path)
-        if parsed_path.path == "/check":
-            query = parse_qs(parsed_path.query)
-            domain = query.get("domain", [None])[0]
-
-            # Разрешаем SSL только если домен совпадает с текущим в этой сессии
-            if domain and domain == current_session_domain:
-                self.send_response(200)
-                self.end_headers()
-                return
-
-        self.send_response(403)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        return  # Отключаем мусор в консоли
-
-
-def run_ssl_check_server():
-    server = HTTPServer(("127.0.0.1", CHECK_PORT), SSLCheckHandler)
-    server.serve_forever()
+# --- Управление SSL check сервером ---
+def notify_ssl_check(domain, add=True):
+    """Уведомить глобальный SSL check сервер о добавлении/удалении домена"""
+    try:
+        endpoint = (
+            f"http://127.0.0.1:{CHECK_PORT}/add"
+            if add
+            else f"http://127.0.0.1:{CHECK_PORT}/remove"
+        )
+        requests.post(endpoint, json={"domain": domain}, timeout=2)
+        return True
+    except Exception as e:
+        print(f"⚠️ Failed to notify SSL check server: {e}")
+        return False
 
 
 # --- Логика определения порта ---
@@ -250,25 +232,22 @@ def manage_caddy_route(route_id, domain, port, delete=False):
 
 # --- Основной цикл ---
 def main():
-    global current_session_domain
-
-    # 1. Запуск сервера проверок в фоне
-    threading.Thread(target=run_ssl_check_server, daemon=True).start()
-
-    # 2. Ожидание проброшенного порта
+    # 1. Ожидание проброшенного порта
     print("⏳ Waiting for tunnel port...")
     port = get_ssh_tunnel_port()
     if not port:
         print("❌ Error: Remote port forwarding not detected. Did you use -R?")
         sys.exit(1)
 
-    # 3. Генерация данных сессии
+    # 2. Генерация данных сессии
     session_id = uuid.uuid4().hex[:8]
     current_session_domain = f"{session_id}.{BASE_DOMAIN}"
     route_id = f"tun-{session_id}"
 
-    # 4. Регистрация в Caddy
+    # 3. Регистрация в Caddy
     if manage_caddy_route(route_id, current_session_domain, port):
+        # Уведомляем SSL check сервер
+        notify_ssl_check(current_session_domain, add=True)
         print("\n" + "=" * 50)
         print("🚀 LOCRUN TUNNEL IS LIVE")
         print(f"🔗 URL: https://{current_session_domain}")
@@ -279,10 +258,11 @@ def main():
         print("❌ Failed to register route in Caddy. Check admin API.")
         sys.exit(1)
 
-    # 5. Обработка завершения
+    # 4. Обработка завершения
     def cleanup(signum, frame):
         print("\nCleaning up {}...".format(current_session_domain))
         manage_caddy_route(route_id, current_session_domain, port, delete=True)
+        notify_ssl_check(current_session_domain, add=False)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, cleanup)

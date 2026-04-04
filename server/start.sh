@@ -30,12 +30,16 @@ caddy start --config /etc/caddy/Caddyfile --adapter caddyfile
 echo "🔌 Starting SSHD on port ${SSH_PORT:-22}..."
 /usr/sbin/sshd
 
+# 5. Запуск SSL check сервера (глобальный процесс)
+echo "🔒 Starting SSL check server on port 8080..."
+python3 -u /app/ssl_check_server.py &
+SSL_PID=$!
+echo "SSL check server started with PID $SSL_PID"
+
 echo "----------------------------------------------------"
 echo "✅ LocRun Gateway is UP and Running!"
 echo "📍 Base Domain: $BASE_DOMAIN"
 echo "----------------------------------------------------"
 
-# 5. Удержание контейнера (Keep-alive)
-# Вместо запуска handler.py здесь, мы просто заставляем скрипт ждать.
-# Это не ест ресурсы и не дает Docker завершить работу контейнера.
+# 6. Удержание контейнера (Keep-alive)
 exec tail -f /dev/null

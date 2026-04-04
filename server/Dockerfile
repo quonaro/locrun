@@ -26,8 +26,9 @@ COPY handler-wrapper.sh /app/handler-wrapper.sh
 COPY sshd_config /etc/ssh/sshd_config
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY start.sh /app/start.sh
+COPY ssl_check_server.py /app/ssl_check_server.py
 
-RUN chmod +x /app/start.sh /app/handler.py /app/handler-wrapper.sh
+RUN chmod +x /app/start.sh /app/handler.py /app/handler-wrapper.sh /app/ssl_check_server.py
 
 # Открываем порты (22 — внутренний для контейнера)
 EXPOSE 80 443 22
