@@ -9,16 +9,14 @@
 	}
 }
 
-# HTTP блок включается только если FORCE_HTTPS=false
-{env.FORCE_HTTPS}.not {
-	:80 {
-		# Handle ACME challenges
-		handle /.well-known/acme-challenge/* {
-			respond "ACME Challenge" 200
-		}
-		# Redirect everything else to HTTPS
-		redir https://{host}{uri} permanent
+# HTTP блок для ACME challenges
+:80 {
+	# Handle ACME challenges
+	handle /.well-known/acme-challenge/* {
+		respond "ACME Challenge" 200
 	}
+	# Redirect everything else to HTTPS
+	redir https://{host}{uri} permanent
 }
 
 https:// {
