@@ -54,37 +54,47 @@ def run_ssl_check_server():
 # --- Логика определения порта ---
 def get_my_tunnel_port():
     """
-    Ищет TCP порт, который слушает родительский процесс (sshd)
-    для Remote Forwarding этой конкретной сессии.
+    Ищет TCP порт, выделенный для Remote Forwarding.
+    SSHd открывает порт на 0.0.0.0, но без явной привязки к PID в ss.
+    Ищем порт по признакам: LISTEN, 0.0.0.0, порт > 32768 (ephemeral).
     """
-    ppid = os.getppid()
-    print(f"🔍 Parent PID (sshd): {ppid}", file=sys.stderr)
-
     for i in range(30):  # Ждем до 15 секунд
         time.sleep(0.5)
         try:
-            # Показываем все слушающие порты каждые 5 итераций
-            if i % 5 == 0:
-                output_all = subprocess.check_output(
-                    ["ss", "-ntlp"], stderr=subprocess.DEVNULL
-                ).decode()
-                print(f"🔍 Iteration {i}: checking ports...", file=sys.stderr)
-                for line in output_all.splitlines():
-                    if "LISTEN" in line:
-                        print(f"   {line}", file=sys.stderr)
-
             output = subprocess.check_output(
                 ["ss", "-ntlp"], stderr=subprocess.DEVNULL
             ).decode()
+
+            ports = []
             for line in output.splitlines():
-                if f"pid={ppid}" in line:
-                    parts = line.split()
-                    port = parts[3].split(":")[-1].strip("]")
-                    if port.isdigit():
-                        print(f"✅ Found port {port} for pid={ppid}", file=sys.stderr)
-                        return port
+                if "LISTEN" not in line:
+                    continue
+                parts = line.split()
+                # Формат: LISTEN 0 backlog local_addr peer_addr [users:(...)]
+                local_addr = parts[3]  # например 0.0.0.0:43163 или 127.0.0.1:8080
+                if ":" not in local_addr:
+                    continue
+                addr, port_str = local_addr.rsplit(":", 1)
+                port_str = port_str.strip("]")
+                if not port_str.isdigit():
+                    continue
+                port = int(port_str)
+                # Игнорируем известные системные порты
+                if port in [22, 80, 443, 2019, 8080, 41907]:
+                    continue
+                # Берем порты из диапазона ephemeral (> 32768) или любые не-системные
+                if port > 1024:
+                    ports.append(port)
+
+            if ports:
+                # Берем первый найденный порт (обычно один туннель на сессию)
+                chosen = ports[0]
+                print(f"✅ Found tunnel port: {chosen}", file=sys.stderr)
+                return str(chosen)
+
         except Exception as e:
-            print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
+            if i % 5 == 0:
+                print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
 
     print(f"❌ Port not found after 30 attempts", file=sys.stderr)
     return None
