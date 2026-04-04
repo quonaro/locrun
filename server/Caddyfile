@@ -1,6 +1,6 @@
 {
 	servers {
-		protocols h1 h2
+		protocols h1
 	}
 	admin localhost:2019
 	# Настройка On-Demand TLS: Caddy спросит у Python, можно ли выписывать SSL

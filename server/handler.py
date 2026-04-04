@@ -49,6 +49,8 @@ def get_ssh_tunnel_port():
         )
         return get_my_tunnel_port_legacy()
 
+    print(f"🔍 SSH connection: {ssh_conn}", file=sys.stderr)
+
     # SSH_CONNECTION: client_ip client_port server_ip server_port
     # SSH_CLIENT: client_ip client_port server_port (без server_ip)
     parts = ssh_conn.split()
