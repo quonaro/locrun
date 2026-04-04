@@ -15,8 +15,8 @@
 	handle /.well-known/acme-challenge/* {
 		respond "ACME Challenge" 200
 	}
-	# Redirect everything else to HTTPS
-	redir https://{host}{uri} permanent
+	# Все остальные запросы обрабатываются динамически через API
+	# Если роут не создан - будет ответ 404 от Caddy
 }
 
 https:// {
