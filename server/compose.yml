@@ -1,5 +1,5 @@
 services:
-  locrun-server:
+  server:
     build:
       context: .
       dockerfile: Dockerfile
