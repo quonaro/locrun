@@ -13,6 +13,7 @@ TCPKeepAlive yes
 ClientAliveInterval 30
 ClientAliveCountMax 3
 PermitUserEnvironment yes
+AcceptEnv TUNNEL_PORT
 
 Match User tun
     PermitEmptyPasswords yes

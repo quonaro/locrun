@@ -37,8 +37,16 @@ def notify_ssl_check(domain, add=True):
 def get_ssh_tunnel_port():
     """
     Находит порт туннеля, выделенный текущей SSH-сессией.
+    Сначала проверяет переменную окружения TUNNEL_PORT, затем ищет через ss.
     Возвращает кортеж (ip, port) для точного upstream адреса.
     """
+    # Сначала проверяем переменную окружения (если клиент передал её)
+    tunnel_port = os.getenv("TUNNEL_PORT")
+    if tunnel_port and tunnel_port.isdigit():
+        print(f"✅ Using tunnel port from env: {tunnel_port}", file=sys.stderr)
+        return "127.0.0.11", tunnel_port  # SSH remote forward обычно на 127.0.0.11
+
+    # Fallback: ищем через ss
     for _ in range(15):
         time.sleep(0.3)
         try:
@@ -134,7 +142,10 @@ def manage_caddy_route(route_id, domain, tunnel_ip, port, delete=False):
                 timeout=2,
             )
             if r.status_code not in [200, 201, 204]:
-                print(f"⚠️ Failed to add route to {server}: {r.status_code}", file=sys.stderr)
+                print(
+                    f"⚠️ Failed to add route to {server}: {r.status_code}",
+                    file=sys.stderr,
+                )
         return True
     except Exception as e:
         print(f"❌ Caddy API Error: {e}", file=sys.stderr)
@@ -171,7 +182,9 @@ def main():
     # 3. Обработка завершения
     def cleanup(signum, frame):
         print("\nCleaning up {}...".format(current_session_domain))
-        manage_caddy_route(route_id, current_session_domain, tunnel_ip, port, delete=True)
+        manage_caddy_route(
+            route_id, current_session_domain, tunnel_ip, port, delete=True
+        )
         notify_ssl_check(current_session_domain, add=False)
         sys.exit(0)
 
