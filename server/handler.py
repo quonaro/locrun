@@ -52,13 +52,98 @@ def run_ssl_check_server():
 
 
 # --- Логика определения порта ---
-def get_my_tunnel_port():
+def get_ssh_tunnel_port():
     """
-    Ищет TCP порт, выделенный для Remote Forwarding.
-    SSHd открывает порт на 0.0.0.0, но без явной привязки к PID в ss.
-    Ищем порт по признакам: LISTEN, 0.0.0.0, порт > 32768 (ephemeral).
+    Находит порт туннеля, выделенный текущей SSH-сессией.
+    Использует SSH_CONNECTION для определения PID sshd процесса,
+    затем ищет порты, привязанные к этому PID через ss.
     """
-    for i in range(30):  # Ждем до 15 секунд
+    ssh_conn = os.getenv("SSH_CONNECTION")
+    if not ssh_conn:
+        print(
+            "⚠️ SSH_CONNECTION not set, falling back to legacy method", file=sys.stderr
+        )
+        return get_my_tunnel_port_legacy()
+
+    # SSH_CONNECTION: client_ip client_port server_ip server_port
+    parts = ssh_conn.split()
+    if len(parts) != 4:
+        print(f"⚠️ Unexpected SSH_CONNECTION format: {ssh_conn}", file=sys.stderr)
+        return get_my_tunnel_port_legacy()
+
+    client_ip, client_port, server_ip, server_port = parts
+
+    for i in range(30):
+        time.sleep(0.5)
+        try:
+            # Находим PID sshd процесса по client_ip:client_port
+            # Формат ss: tcp   ESTAB  0  0  server_ip:server_port  client_ip:client_port  users:(sshd,pid)
+            output = subprocess.check_output(
+                ["ss", "-ntp"], stderr=subprocess.DEVNULL
+            ).decode()
+
+            sshd_pids = set()
+            for line in output.splitlines():
+                if "ESTAB" not in line or "sshd" not in line:
+                    continue
+                if f"{client_ip}:{client_port}" in line:
+                    # Извлекаем PID из users:(sshd,1234,fd)
+                    if "users:((sshd," in line:
+                        pid_part = line.split("users:((sshd,")[1].split(",")[0]
+                        if pid_part.isdigit():
+                            sshd_pids.add(pid_part)
+
+            if not sshd_pids:
+                if i % 5 == 0:
+                    print(
+                        f"⏳ Waiting for sshd connection... (attempt {i + 1})",
+                        file=sys.stderr,
+                    )
+                continue
+
+            # Теперь ищем LISTEN порты, привязанные к найденным PID
+            output = subprocess.check_output(
+                ["ss", "-ntlp"], stderr=subprocess.DEVNULL
+            ).decode()
+
+            tunnel_ports = []
+            for line in output.splitlines():
+                if "LISTEN" not in line:
+                    continue
+                # Проверяем, принадлежит ли порт одному из наших sshd PID
+                for pid in sshd_pids:
+                    if f"users:((sshd,{pid}," in line or f"pid={pid}" in line:
+                        parts_ss = line.split()
+                        local_addr = parts_ss[3]  # например 0.0.0.0:40475
+                        if ":" not in local_addr:
+                            continue
+                        addr, port_str = local_addr.rsplit(":", 1)
+                        port_str = port_str.strip("]")
+                        if port_str.isdigit():
+                            port = int(port_str)
+                            # Исключаем известные порты
+                            if port not in [22, 80, 443, 2019, 8080, 41907]:
+                                tunnel_ports.append(port)
+
+            if tunnel_ports:
+                chosen = tunnel_ports[0]
+                print(f"✅ Found tunnel port via PID: {chosen}", file=sys.stderr)
+                return str(chosen)
+
+        except Exception as e:
+            if i % 5 == 0:
+                print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
+
+    print("❌ Port not found after 30 attempts via PID method", file=sys.stderr)
+    return get_my_tunnel_port_legacy()
+
+
+def get_my_tunnel_port_legacy():
+    """
+    Legacy метод: берем первый попавшийся эфемерный порт.
+    Может быть неточным при параллельных сессиях.
+    """
+    for i in range(30):
         time.sleep(0.5)
         try:
             output = subprocess.check_output(
@@ -70,8 +155,7 @@ def get_my_tunnel_port():
                 if "LISTEN" not in line:
                     continue
                 parts = line.split()
-                # Формат: LISTEN 0 backlog local_addr peer_addr [users:(...)]
-                local_addr = parts[3]  # например 0.0.0.0:43163 или 127.0.0.1:8080
+                local_addr = parts[3]
                 if ":" not in local_addr:
                     continue
                 addr, port_str = local_addr.rsplit(":", 1)
@@ -79,24 +163,21 @@ def get_my_tunnel_port():
                 if not port_str.isdigit():
                     continue
                 port = int(port_str)
-                # Игнорируем известные системные порты
                 if port in [22, 80, 443, 2019, 8080, 41907]:
                     continue
-                # Берем порты из диапазона ephemeral (> 32768) или любые не-системные
-                if port > 1024:
+                if port > 32768:  # Только ephemeral порты
                     ports.append(port)
 
             if ports:
-                # Берем первый найденный порт (обычно один туннель на сессию)
                 chosen = ports[0]
-                print(f"✅ Found tunnel port: {chosen}", file=sys.stderr)
+                print(f"✅ Found tunnel port (legacy): {chosen}", file=sys.stderr)
                 return str(chosen)
 
         except Exception as e:
             if i % 5 == 0:
                 print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
 
-    print(f"❌ Port not found after 30 attempts", file=sys.stderr)
+    print("❌ Port not found after 30 attempts", file=sys.stderr)
     return None
 
 
@@ -105,7 +186,7 @@ def manage_caddy_route(route_id, domain, port, delete=False):
     if delete:
         try:
             requests.delete(f"{CADDY_API}/id/{route_id}", timeout=2)
-        except:
+        except Exception:
             pass
         return True
 
@@ -117,6 +198,7 @@ def manage_caddy_route(route_id, domain, port, delete=False):
             {
                 "handler": "reverse_proxy",
                 "upstreams": [{"dial": f"127.0.0.1:{port}"}],
+                "transport": {"protocol": "http", "versions": ["1.1", "1.0"]},
                 "headers": {
                     "request": {
                         "set": {
@@ -153,7 +235,7 @@ def main():
 
     # 2. Ожидание проброшенного порта
     print("⏳ Waiting for tunnel port...")
-    port = get_my_tunnel_port()
+    port = get_ssh_tunnel_port()
     if not port:
         print("❌ Error: Remote port forwarding not detected. Did you use -R?")
         sys.exit(1)
@@ -165,11 +247,11 @@ def main():
 
     # 4. Регистрация в Caddy
     if manage_caddy_route(route_id, current_session_domain, port):
-        print(f"\n{'=' * 50}")
-        print(f"🚀 LOCRUN TUNNEL IS LIVE")
+        print("\n" + "=" * 50)
+        print("🚀 LOCRUN TUNNEL IS LIVE")
         print(f"🔗 URL: https://{current_session_domain}")
         print(f"🛠  Forwarding: localhost:{port} -> Remote")
-        print(f"{'=' * 50}\n")
+        print("=" * 50 + "\n")
         sys.stdout.flush()
     else:
         print("❌ Failed to register route in Caddy. Check admin API.")
@@ -177,7 +259,7 @@ def main():
 
     # 5. Обработка завершения
     def cleanup(signum, frame):
-        print(f"\nCleaning up {current_session_domain}...")
+        print("\nCleaning up {}...".format(current_session_domain))
         manage_caddy_route(route_id, current_session_domain, port, delete=True)
         sys.exit(0)
 
