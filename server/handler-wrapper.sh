@@ -13,5 +13,5 @@ if [ -f /etc/environment ]; then
     done < /etc/environment
 fi
 
-# Запускаем основной обработчик
-exec /app/handler.py
+# Запускаем основной обработчик с небуферизованным выводом
+exec python3 -u /app/handler.py
