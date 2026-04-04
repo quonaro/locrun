@@ -38,7 +38,7 @@ def get_ssh_tunnel_port():
     """
     Находит порт туннеля, выделенный текущей SSH-сессией.
     Использует SSH_CONNECTION для определения PID sshd процесса,
-    затем ищет порты, привязанные к этому PID через ss.
+    затем ищет порты, привязанные к этому PID через /proc/net/tcp.
     """
     # Пробуем SSH_CONNECTION, затем SSH_CLIENT
     ssh_conn = os.getenv("SSH_CONNECTION") or os.getenv("SSH_CLIENT")
@@ -60,88 +60,123 @@ def get_ssh_tunnel_port():
 
     client_ip, client_port = parts[0], parts[1]
 
+    # Читаем /proc/net/tcp напрямую (надёжнее в контейнерах)
     for i in range(30):
         time.sleep(0.5)
         try:
-            # Находим PID sshd процесса по client_ip:client_port
-            output = subprocess.check_output(
-                ["ss", "-ntp"], stderr=subprocess.DEVNULL
-            ).decode()
+            with open("/proc/net/tcp") as f:
+                lines = f.readlines()
 
+            # Формат /proc/net/tcp: sl  local_address rem_address   st ...
+            # local_address в hex: 0100007F:1F90 = 127.0.0.1:8080
             sshd_pids = set()
-            for line in output.splitlines():
-                if "ESTAB" not in line or "sshd" not in line:
+
+            # Находим Established соединения к клиентскому порту
+            client_port_hex = f"{int(client_port):04X}"
+            for line in lines[1:]:  # Пропускаем заголовок
+                parts_line = line.split()
+                if len(parts_line) < 4:
                     continue
-                if f"{client_ip}:{client_port}" in line:
-                    # Пробуем разные форматы вывода ss
-                    # Alpine/busybox ss: users:(sshd,pid,fd) или users:(("sshd",pid,fd))
-                    pid = None
-                    if 'users:(("sshd",' in line:
-                        pid_part = line.split('users:(("sshd",')[1].split(",")[0]
-                        if pid_part.isdigit():
-                            pid = pid_part
-                    elif "users:((sshd," in line:
-                        pid_part = line.split("users:((sshd,")[1].split(",")[0]
-                        if pid_part.isdigit():
-                            pid = pid_part
-                    elif "users:(sshd," in line:
-                        pid_part = line.split("users:(sshd,")[1].split(",")[0]
-                        if pid_part.isdigit():
-                            pid = pid_part
+                local_addr = parts_line[1]
+                rem_addr = parts_line[2]
+                state = parts_line[3]
 
-                    if pid:
-                        sshd_pids.add(pid)
+                # state 01 = ESTABLISHED
+                if state != "01":
+                    continue
 
-            if not sshd_pids:
+                # Проверяем, соответствует ли rem_addr клиентскому IP:port
+                # IP конвертируем в hex (обратный порядок)
+                ip_parts = client_ip.split(".")
+                ip_hex = f"{int(ip_parts[3]):02X}{int(ip_parts[2]):02X}{int(ip_parts[1]):02X}{int(ip_parts[0]):02X}"
+                expected_rem = f"{ip_hex}:{client_port_hex}"
+
+                if rem_addr == expected_rem:
+                    # Нашли соединение, теперь нужно найти PID
+                    # В newer kernels есть inode, можно использовать его
+                    if len(parts_line) > 9:
+                        inode = parts_line[9]
+                        # Ищем PID по inode в /proc/*/fd
+                        for pid_dir in os.listdir("/proc"):
+                            if pid_dir.isdigit():
+                                fd_dir = f"/proc/{pid_dir}/fd"
+                                if os.path.exists(fd_dir):
+                                    try:
+                                        for fd in os.listdir(fd_dir):
+                                            fd_path = os.path.join(fd_dir, fd)
+                                            if os.path.islink(fd_path):
+                                                target = os.readlink(fd_path)
+                                                if f"socket:[{inode}]" in target:
+                                                    sshd_pids.add(pid_dir)
+                                                    break
+                                    except (ProcessLookupError, PermissionError):
+                                        continue
+
+            if sshd_pids:
+                print(f"🔍 Found sshd PIDs via /proc: {sshd_pids}", file=sys.stderr)
+            else:
                 if i % 5 == 0:
                     print(
-                        f"⏳ Waiting for sshd connection... (attempt {i + 1})",
+                        f"⏳ Waiting for connection... (attempt {i + 1})",
                         file=sys.stderr,
                     )
                 continue
 
-            print(f"🔍 Found sshd PIDs: {sshd_pids}", file=sys.stderr)
-
-            # Теперь ищем LISTEN порты, привязанные к найденным PID
-            output = subprocess.check_output(
-                ["ss", "-ntlp"], stderr=subprocess.DEVNULL
-            ).decode()
-
-            tunnel_ports = []
-            for line in output.splitlines():
-                if "LISTEN" not in line:
+            # Теперь ищем LISTEN порты с этими PID
+            listening_ports = []
+            for line in lines[1:]:
+                parts_line = line.split()
+                if len(parts_line) < 4:
                     continue
-                # Проверяем, принадлежит ли порт одному из наших sshd PID
-                for pid in sshd_pids:
-                    # Пробуем разные форматы
-                    if (
-                        f'users:(("sshd",{pid},' in line
-                        or f"users:((sshd,{pid}," in line
-                        or f"users:(sshd,{pid}," in line
-                        or f"pid={pid}" in line
-                    ):
-                        parts_ss = line.split()
-                        local_addr = parts_ss[3]  # например 0.0.0.0:40475
-                        if ":" not in local_addr:
-                            continue
-                        addr, port_str = local_addr.rsplit(":", 1)
-                        port_str = port_str.strip("]")
-                        if port_str.isdigit():
-                            port = int(port_str)
-                            # Исключаем известные порты
-                            if port not in [22, 80, 443, 2019, 8080, 41907]:
-                                tunnel_ports.append(port)
+                state = parts_line[3]
 
-            if tunnel_ports:
-                chosen = tunnel_ports[0]
-                print(f"✅ Found tunnel port via PID: {chosen}", file=sys.stderr)
+                # state 0A = LISTEN
+                if state != "0A":
+                    continue
+
+                local_addr = parts_line[1]
+                if len(parts_line) > 9:
+                    inode = parts_line[9]
+
+                    # Проверяем, принадлежит ли этот inode нашим sshd PID
+                    for pid in sshd_pids:
+                        fd_dir = f"/proc/{pid}/fd"
+                        if os.path.exists(fd_dir):
+                            try:
+                                for fd in os.listdir(fd_dir):
+                                    fd_path = os.path.join(fd_dir, fd)
+                                    if os.path.islink(fd_path):
+                                        target = os.readlink(fd_path)
+                                        if f"socket:[{inode}]" in target:
+                                            # Парсим порт из local_addr
+                                            # Формат: 00000000:8E2F -> 0.0.0.0:36399
+                                            if ":" in local_addr:
+                                                _, port_hex = local_addr.split(":")
+                                                port = int(port_hex, 16)
+                                                # Исключаем известные порты
+                                                if port not in [
+                                                    22,
+                                                    80,
+                                                    443,
+                                                    2019,
+                                                    8080,
+                                                    41907,
+                                                ]:
+                                                    listening_ports.append(port)
+                                                    break
+                            except (ProcessLookupError, PermissionError):
+                                continue
+
+            if listening_ports:
+                chosen = listening_ports[0]
+                print(f"✅ Found tunnel port via /proc: {chosen}", file=sys.stderr)
                 return str(chosen)
 
         except Exception as e:
             if i % 5 == 0:
                 print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
 
-    print("❌ Port not found after 30 attempts via PID method", file=sys.stderr)
+    print("❌ Port not found after 30 attempts via /proc method", file=sys.stderr)
     return get_my_tunnel_port_legacy()
 
 

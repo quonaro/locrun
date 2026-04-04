@@ -9,19 +9,9 @@
 	}
 }
 
-# HTTP block for ACME challenges and redirects
-:80 {
-	# Handle ACME challenges
-	# Let's Encrypt needs this for HTTP-01 validation
-	handle /.well-known/acme-challenge/* {
-		respond "ACME Challenge" 200
-	}
+# Мы убираем HTTP блок, так как порт 80 недоступен извне
+# TLS-ALPN-01 работает, поэтому HTTP-01 не нужен
 
-	# Redirect everything else to HTTPS
-	redir https://{host}{uri} permanent
-}
-
-# Мы убираем *, оставляем обработку всех входящих HTTPS запросов
 https:// {
 	tls {
 		on_demand
@@ -32,7 +22,7 @@ https:// {
 		output file /var/log/caddy/access.log
 	}
 
-	# Важно: Caddy сам по себе ничего не проксирует. 
+	# Важно: Caddy сам по себе ничего не проксирует.
 	# Роуты (reverse_proxy) будут добавляться ДИНАМИЧЕСКИ через Python API (manage_caddy)
 	handle {
 		# Если для этого хоста Python еще не создал динамический роут через API,
