@@ -37,7 +37,7 @@ def notify_ssl_check(domain, add=True):
 def get_ssh_tunnel_port():
     """
     Находит порт туннеля, выделенный текущей SSH-сессией.
-    Простой и надёжный метод: берём максимальный порт >= 10000.
+    SSH remote forward обычно слушает на 0.0.0.0, ищем такие порты.
     """
     for _ in range(15):
         time.sleep(0.3)
@@ -52,10 +52,18 @@ def get_ssh_tunnel_port():
                     if len(parts) < 4:
                         continue
                     local_addr = parts[3]
+                    # Ищем порты на 0.0.0.0 (all interfaces) или ::: (IPv6)
+                    # SSH remote forward обычно слушает везде, а не на localhost
+                    if not (
+                        local_addr.startswith("0.0.0.0:")
+                        or local_addr.startswith("*:")
+                        or local_addr.startswith("::")
+                    ):
+                        continue
                     port_str = local_addr.split(":")[-1].strip("]")
                     if port_str.isdigit():
                         p = int(port_str)
-                        if p >= 10000 and p not in [2019, 8080]:
+                        if p >= 10000 and p not in [2019, 8080, 22]:
                             found_ports.append(p)
             if found_ports:
                 chosen = max(found_ports)
