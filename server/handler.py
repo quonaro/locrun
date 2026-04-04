@@ -37,7 +37,7 @@ def notify_ssl_check(domain, add=True):
 def get_ssh_tunnel_port():
     """
     Находит порт туннеля, выделенный текущей SSH-сессией.
-    Ищем все порты >= 10000 на любых интерфейсах.
+    Возвращает кортеж (ip, port) для точного upstream адреса.
     """
     for _ in range(15):
         time.sleep(0.3)
@@ -45,22 +45,27 @@ def get_ssh_tunnel_port():
             output = subprocess.check_output(
                 ["ss", "-ntl"], stderr=subprocess.DEVNULL
             ).decode()
-            found_ports = []
+            candidates = []
             for line in output.splitlines():
                 if "LISTEN" in line:
                     parts = line.split()
                     if len(parts) < 4:
                         continue
                     local_addr = parts[3]
-                    port_str = local_addr.split(":")[-1].strip("]")
+                    if ":" not in local_addr:
+                        continue
+                    ip, port_str = local_addr.rsplit(":", 1)
+                    port_str = port_str.strip("]")
                     if port_str.isdigit():
                         p = int(port_str)
                         if p >= 10000 and p not in [2019, 8080, 22]:
-                            found_ports.append(p)
-            if found_ports:
-                chosen = max(found_ports)
-                print(f"✅ Found tunnel port: {chosen}", file=sys.stderr)
-                return str(chosen)
+                            candidates.append((ip, p))
+            if candidates:
+                # Берём порт с максимальным номером
+                chosen = max(candidates, key=lambda x: x[1])
+                ip, port = chosen
+                print(f"✅ Found tunnel port: {port} on {ip}", file=sys.stderr)
+                return ip, str(port)
         except Exception as e:
             print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
             continue
@@ -70,7 +75,7 @@ def get_ssh_tunnel_port():
 
 
 # --- Управление Caddy API ---
-def manage_caddy_route(route_id, domain, port, delete=False):
+def manage_caddy_route(route_id, domain, tunnel_ip, port, delete=False):
     if delete:
         try:
             requests.delete(f"{CADDY_API}/id/{route_id}", timeout=2)
@@ -85,7 +90,7 @@ def manage_caddy_route(route_id, domain, port, delete=False):
         "handle": [
             {
                 "handler": "reverse_proxy",
-                "upstreams": [{"dial": f"localhost:{port}"}],
+                "upstreams": [{"dial": f"{tunnel_ip}:{port}"}],
                 "headers": {
                     "request": {
                         "set": {
@@ -106,7 +111,7 @@ def manage_caddy_route(route_id, domain, port, delete=False):
         "handle": [
             {
                 "handler": "reverse_proxy",
-                "upstreams": [{"dial": f"localhost:{port}"}],
+                "upstreams": [{"dial": f"{tunnel_ip}:{port}"}],
                 "headers": {
                     "request": {
                         "set": {
@@ -129,10 +134,7 @@ def manage_caddy_route(route_id, domain, port, delete=False):
                 timeout=2,
             )
             if r.status_code not in [200, 201, 204]:
-                print(
-                    f"⚠️ Failed to add route to {server}: {r.status_code}",
-                    file=sys.stderr,
-                )
+                print(f"⚠️ Failed to add route to {server}: {r.status_code}", file=sys.stderr)
         return True
     except Exception as e:
         print(f"❌ Caddy API Error: {e}", file=sys.stderr)
@@ -143,32 +145,33 @@ def manage_caddy_route(route_id, domain, port, delete=False):
 def main():
     # 1. Ожидание проброшенного порта
     print("⏳ Waiting for tunnel port...")
-    port = get_ssh_tunnel_port()
-    if not port:
+    result = get_ssh_tunnel_port()
+    if not result:
         print("❌ Error: Remote port forwarding not detected. Did you use -R?")
         sys.exit(1)
+    tunnel_ip, port = result
     session_id = uuid.uuid4().hex[:8]
     current_session_domain = f"{session_id}.{BASE_DOMAIN}"
     route_id = f"tun-{session_id}"
 
-    # 3. Регистрация в Caddy
-    if manage_caddy_route(route_id, current_session_domain, port):
+    # 2. Регистрация в Caddy
+    if manage_caddy_route(route_id, current_session_domain, tunnel_ip, port):
         # Уведомляем SSL check сервер
         notify_ssl_check(current_session_domain, add=True)
         print("\n" + "=" * 50)
         print("🚀 LOCRUN TUNNEL IS LIVE")
         print(f"🔗 URL: https://{current_session_domain}")
-        print(f"🛠  Forwarding: localhost:{port} -> Remote")
+        print(f"🛠  Forwarding: {tunnel_ip}:{port} -> Remote")
         print("=" * 50 + "\n")
         sys.stdout.flush()
     else:
         print("❌ Failed to register route in Caddy. Check admin API.")
         sys.exit(1)
 
-    # 4. Обработка завершения
+    # 3. Обработка завершения
     def cleanup(signum, frame):
         print("\nCleaning up {}...".format(current_session_domain))
-        manage_caddy_route(route_id, current_session_domain, port, delete=True)
+        manage_caddy_route(route_id, current_session_domain, tunnel_ip, port, delete=True)
         notify_ssl_check(current_session_domain, add=False)
         sys.exit(0)
 
