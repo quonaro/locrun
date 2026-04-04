@@ -9,6 +9,7 @@ RUN apk add --no-cache \
     openssh-server \
     bash \
     tini \
+    iproute2 \
     && rm -rf /var/cache/apk/*
 
 WORKDIR /app
