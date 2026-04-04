@@ -9,8 +9,17 @@
 	}
 }
 
-# Мы убираем HTTP блок, так как порт 80 недоступен извне
-# TLS-ALPN-01 работает, поэтому HTTP-01 не нужен
+# HTTP блок включается только если FORCE_HTTPS=false
+{env.FORCE_HTTPS}.not {
+	:80 {
+		# Handle ACME challenges
+		handle /.well-known/acme-challenge/* {
+			respond "ACME Challenge" 200
+		}
+		# Redirect everything else to HTTPS
+		redir https://{host}{uri} permanent
+	}
+}
 
 https:// {
 	tls {
