@@ -37,189 +37,35 @@ def notify_ssl_check(domain, add=True):
 def get_ssh_tunnel_port():
     """
     Находит порт туннеля, выделенный текущей SSH-сессией.
-    Использует SSH_CONNECTION для определения PID sshd процесса,
-    затем ищет порты, привязанные к этому PID через /proc/net/tcp.
+    Простой и надёжный метод: берём максимальный порт >= 10000.
     """
-    # Пробуем SSH_CONNECTION, затем SSH_CLIENT
-    ssh_conn = os.getenv("SSH_CONNECTION") or os.getenv("SSH_CLIENT")
-    if not ssh_conn:
-        print(
-            "⚠️ SSH_CONNECTION/SSH_CLIENT not set, falling back to legacy method",
-            file=sys.stderr,
-        )
-        return get_my_tunnel_port_legacy()
-
-    print(f"🔍 SSH connection: {ssh_conn}", file=sys.stderr)
-
-    # SSH_CONNECTION: client_ip client_port server_ip server_port
-    # SSH_CLIENT: client_ip client_port server_port (без server_ip)
-    parts = ssh_conn.split()
-    if len(parts) < 3:
-        print(f"⚠️ Unexpected SSH_CONNECTION format: {ssh_conn}", file=sys.stderr)
-        return get_my_tunnel_port_legacy()
-
-    client_ip, client_port = parts[0], parts[1]
-
-    # Читаем /proc/net/tcp напрямую (надёжнее в контейнерах)
-    for i in range(30):
-        time.sleep(0.5)
-        try:
-            with open("/proc/net/tcp") as f:
-                lines = f.readlines()
-
-            # Формат /proc/net/tcp: sl  local_address rem_address   st ...
-            # local_address в hex: 0100007F:1F90 = 127.0.0.1:8080
-            sshd_pids = set()
-
-            # Находим Established соединения к клиентскому порту
-            client_port_hex = f"{int(client_port):04X}"
-            for line in lines[1:]:  # Пропускаем заголовок
-                parts_line = line.split()
-                if len(parts_line) < 4:
-                    continue
-                local_addr = parts_line[1]
-                rem_addr = parts_line[2]
-                state = parts_line[3]
-
-                # state 01 = ESTABLISHED
-                if state != "01":
-                    continue
-
-                # Проверяем, соответствует ли rem_addr клиентскому IP:port
-                # IP конвертируем в hex (обратный порядок)
-                ip_parts = client_ip.split(".")
-                ip_hex = f"{int(ip_parts[3]):02X}{int(ip_parts[2]):02X}{int(ip_parts[1]):02X}{int(ip_parts[0]):02X}"
-                expected_rem = f"{ip_hex}:{client_port_hex}"
-
-                if rem_addr == expected_rem:
-                    # Нашли соединение, теперь нужно найти PID
-                    # В newer kernels есть inode, можно использовать его
-                    if len(parts_line) > 9:
-                        inode = parts_line[9]
-                        # Ищем PID по inode в /proc/*/fd
-                        for pid_dir in os.listdir("/proc"):
-                            if pid_dir.isdigit():
-                                fd_dir = f"/proc/{pid_dir}/fd"
-                                if os.path.exists(fd_dir):
-                                    try:
-                                        for fd in os.listdir(fd_dir):
-                                            fd_path = os.path.join(fd_dir, fd)
-                                            if os.path.islink(fd_path):
-                                                target = os.readlink(fd_path)
-                                                if f"socket:[{inode}]" in target:
-                                                    sshd_pids.add(pid_dir)
-                                                    break
-                                    except (ProcessLookupError, PermissionError):
-                                        continue
-
-            if sshd_pids:
-                print(f"🔍 Found sshd PIDs via /proc: {sshd_pids}", file=sys.stderr)
-            else:
-                if i % 5 == 0:
-                    print(
-                        f"⏳ Waiting for connection... (attempt {i + 1})",
-                        file=sys.stderr,
-                    )
-                continue
-
-            # Теперь ищем LISTEN порты с этими PID
-            listening_ports = []
-            for line in lines[1:]:
-                parts_line = line.split()
-                if len(parts_line) < 4:
-                    continue
-                state = parts_line[3]
-
-                # state 0A = LISTEN
-                if state != "0A":
-                    continue
-
-                local_addr = parts_line[1]
-                if len(parts_line) > 9:
-                    inode = parts_line[9]
-
-                    # Проверяем, принадлежит ли этот inode нашим sshd PID
-                    for pid in sshd_pids:
-                        fd_dir = f"/proc/{pid}/fd"
-                        if os.path.exists(fd_dir):
-                            try:
-                                for fd in os.listdir(fd_dir):
-                                    fd_path = os.path.join(fd_dir, fd)
-                                    if os.path.islink(fd_path):
-                                        target = os.readlink(fd_path)
-                                        if f"socket:[{inode}]" in target:
-                                            # Парсим порт из local_addr
-                                            # Формат: 00000000:8E2F -> 0.0.0.0:36399
-                                            if ":" in local_addr:
-                                                _, port_hex = local_addr.split(":")
-                                                port = int(port_hex, 16)
-                                                # Исключаем известные порты
-                                                if port not in [
-                                                    22,
-                                                    80,
-                                                    443,
-                                                    2019,
-                                                    8080,
-                                                    41907,
-                                                ]:
-                                                    listening_ports.append(port)
-                                                    break
-                            except (ProcessLookupError, PermissionError):
-                                continue
-
-            if listening_ports:
-                chosen = listening_ports[0]
-                print(f"✅ Found tunnel port via /proc: {chosen}", file=sys.stderr)
-                return str(chosen)
-
-        except Exception as e:
-            if i % 5 == 0:
-                print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
-
-    print("❌ Port not found after 30 attempts via /proc method", file=sys.stderr)
-    return get_my_tunnel_port_legacy()
-
-
-def get_my_tunnel_port_legacy():
-    """
-    Legacy метод: берем первый попавшийся эфемерный порт.
-    Может быть неточным при параллельных сессиях.
-    """
-    for i in range(30):
-        time.sleep(0.5)
+    for _ in range(15):
+        time.sleep(0.3)
         try:
             output = subprocess.check_output(
-                ["ss", "-ntlp"], stderr=subprocess.DEVNULL
+                ["ss", "-ntl"], stderr=subprocess.DEVNULL
             ).decode()
-
-            ports = []
+            found_ports = []
             for line in output.splitlines():
-                if "LISTEN" not in line:
-                    continue
-                parts = line.split()
-                local_addr = parts[3]
-                if ":" not in local_addr:
-                    continue
-                addr, port_str = local_addr.rsplit(":", 1)
-                port_str = port_str.strip("]")
-                if not port_str.isdigit():
-                    continue
-                port = int(port_str)
-                if port in [22, 80, 443, 2019, 8080, 41907]:
-                    continue
-                if port > 32768:  # Только ephemeral порты
-                    ports.append(port)
-
-            if ports:
-                chosen = ports[0]
-                print(f"✅ Found tunnel port (legacy): {chosen}", file=sys.stderr)
+                if "LISTEN" in line:
+                    parts = line.split()
+                    if len(parts) < 4:
+                        continue
+                    local_addr = parts[3]
+                    port_str = local_addr.split(":")[-1].strip("]")
+                    if port_str.isdigit():
+                        p = int(port_str)
+                        if p >= 10000 and p not in [2019, 8080]:
+                            found_ports.append(p)
+            if found_ports:
+                chosen = max(found_ports)
+                print(f"✅ Found tunnel port: {chosen}", file=sys.stderr)
                 return str(chosen)
-
         except Exception as e:
-            if i % 5 == 0:
-                print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
+            print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
+            continue
 
-    print("❌ Port not found after 30 attempts", file=sys.stderr)
+    print("❌ Port not found after 15 attempts", file=sys.stderr)
     return None
 
 
@@ -275,8 +121,6 @@ def main():
     if not port:
         print("❌ Error: Remote port forwarding not detected. Did you use -R?")
         sys.exit(1)
-
-    # 2. Генерация данных сессии
     session_id = uuid.uuid4().hex[:8]
     current_session_domain = f"{session_id}.{BASE_DOMAIN}"
     route_id = f"tun-{session_id}"
