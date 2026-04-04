@@ -58,23 +58,35 @@ def get_my_tunnel_port():
     для Remote Forwarding этой конкретной сессии.
     """
     ppid = os.getppid()
-    for _ in range(20):  # Ждем до 6 секунд (SSH открывает порт не мгновенно)
-        time.sleep(0.3)
+    print(f"🔍 Parent PID (sshd): {ppid}", file=sys.stderr)
+
+    for i in range(30):  # Ждем до 15 секунд
+        time.sleep(0.5)
         try:
-            # Ищем сокеты, открытые процессом ppid (наш sshd)
-            # Флаг -ntlp покажет процессы
+            # Показываем все слушающие порты каждые 5 итераций
+            if i % 5 == 0:
+                output_all = subprocess.check_output(
+                    ["ss", "-ntlp"], stderr=subprocess.DEVNULL
+                ).decode()
+                print(f"🔍 Iteration {i}: checking ports...", file=sys.stderr)
+                for line in output_all.splitlines():
+                    if "LISTEN" in line:
+                        print(f"   {line}", file=sys.stderr)
+
             output = subprocess.check_output(
                 ["ss", "-ntlp"], stderr=subprocess.DEVNULL
             ).decode()
             for line in output.splitlines():
                 if f"pid={ppid}" in line:
                     parts = line.split()
-                    # Локальный адрес обычно 127.0.0.1:PORT или [::1]:PORT
                     port = parts[3].split(":")[-1].strip("]")
                     if port.isdigit():
+                        print(f"✅ Found port {port} for pid={ppid}", file=sys.stderr)
                         return port
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Error checking ports: {e}", file=sys.stderr)
+
+    print(f"❌ Port not found after 30 attempts", file=sys.stderr)
     return None
 
 
