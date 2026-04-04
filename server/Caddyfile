@@ -7,6 +7,8 @@
 	on_demand_tls {
 		ask http://127.0.0.1:8080/check
 	}
+	# Отключаем автоматический HTTP->HTTPS редирект
+	auto_https off
 }
 
 # HTTP блок для ACME challenges
