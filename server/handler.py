@@ -58,26 +58,28 @@ def get_ssh_tunnel_port():
     Использует SSH_CONNECTION для определения PID sshd процесса,
     затем ищет порты, привязанные к этому PID через ss.
     """
-    ssh_conn = os.getenv("SSH_CONNECTION")
+    # Пробуем SSH_CONNECTION, затем SSH_CLIENT
+    ssh_conn = os.getenv("SSH_CONNECTION") or os.getenv("SSH_CLIENT")
     if not ssh_conn:
         print(
-            "⚠️ SSH_CONNECTION not set, falling back to legacy method", file=sys.stderr
+            "⚠️ SSH_CONNECTION/SSH_CLIENT not set, falling back to legacy method",
+            file=sys.stderr,
         )
         return get_my_tunnel_port_legacy()
 
     # SSH_CONNECTION: client_ip client_port server_ip server_port
+    # SSH_CLIENT: client_ip client_port server_port (без server_ip)
     parts = ssh_conn.split()
-    if len(parts) != 4:
+    if len(parts) < 3:
         print(f"⚠️ Unexpected SSH_CONNECTION format: {ssh_conn}", file=sys.stderr)
         return get_my_tunnel_port_legacy()
 
-    client_ip, client_port, server_ip, server_port = parts
+    client_ip, client_port = parts[0], parts[1]
 
     for i in range(30):
         time.sleep(0.5)
         try:
             # Находим PID sshd процесса по client_ip:client_port
-            # Формат ss: tcp   ESTAB  0  0  server_ip:server_port  client_ip:client_port  users:(sshd,pid)
             output = subprocess.check_output(
                 ["ss", "-ntp"], stderr=subprocess.DEVNULL
             ).decode()
@@ -87,11 +89,24 @@ def get_ssh_tunnel_port():
                 if "ESTAB" not in line or "sshd" not in line:
                     continue
                 if f"{client_ip}:{client_port}" in line:
-                    # Извлекаем PID из users:(sshd,1234,fd)
-                    if "users:((sshd," in line:
+                    # Пробуем разные форматы вывода ss
+                    # Alpine/busybox ss: users:(sshd,pid,fd) или users:(("sshd",pid,fd))
+                    pid = None
+                    if 'users:(("sshd",' in line:
+                        pid_part = line.split('users:(("sshd",')[1].split(",")[0]
+                        if pid_part.isdigit():
+                            pid = pid_part
+                    elif "users:((sshd," in line:
                         pid_part = line.split("users:((sshd,")[1].split(",")[0]
                         if pid_part.isdigit():
-                            sshd_pids.add(pid_part)
+                            pid = pid_part
+                    elif "users:(sshd," in line:
+                        pid_part = line.split("users:(sshd,")[1].split(",")[0]
+                        if pid_part.isdigit():
+                            pid = pid_part
+
+                    if pid:
+                        sshd_pids.add(pid)
 
             if not sshd_pids:
                 if i % 5 == 0:
@@ -100,6 +115,8 @@ def get_ssh_tunnel_port():
                         file=sys.stderr,
                     )
                 continue
+
+            print(f"🔍 Found sshd PIDs: {sshd_pids}", file=sys.stderr)
 
             # Теперь ищем LISTEN порты, привязанные к найденным PID
             output = subprocess.check_output(
@@ -112,7 +129,13 @@ def get_ssh_tunnel_port():
                     continue
                 # Проверяем, принадлежит ли порт одному из наших sshd PID
                 for pid in sshd_pids:
-                    if f"users:((sshd,{pid}," in line or f"pid={pid}" in line:
+                    # Пробуем разные форматы
+                    if (
+                        f'users:(("sshd",{pid},' in line
+                        or f"users:((sshd,{pid}," in line
+                        or f"users:(sshd,{pid}," in line
+                        or f"pid={pid}" in line
+                    ):
                         parts_ss = line.split()
                         local_addr = parts_ss[3]  # например 0.0.0.0:40475
                         if ":" not in local_addr:

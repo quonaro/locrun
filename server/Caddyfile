@@ -9,6 +9,18 @@
 	}
 }
 
+# HTTP block for ACME challenges and redirects
+:80 {
+	# Handle ACME challenges
+	# Let's Encrypt needs this for HTTP-01 validation
+	handle /.well-known/acme-challenge/* {
+		respond "ACME Challenge" 200
+	}
+
+	# Redirect everything else to HTTPS
+	redir https://{host}{uri} permanent
+}
+
 # Мы убираем *, оставляем обработку всех входящих HTTPS запросов
 https:// {
 	tls {
