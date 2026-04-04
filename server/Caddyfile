@@ -7,6 +7,8 @@
 	on_demand_tls {
 		ask http://127.0.0.1:8080/check
 	}
+	# ACME CA можно переопределить через ACME_CA env (например staging для тестов)
+	acme_ca {env.ACME_CA}
 }
 
 # HTTP блок для ACME challenges
