@@ -221,7 +221,6 @@ def manage_caddy_route(route_id, domain, port, delete=False):
             {
                 "handler": "reverse_proxy",
                 "upstreams": [{"dial": f"127.0.0.1:{port}"}],
-                "transport": {"protocol": "http", "versions": ["1.1", "1.0"]},
                 "headers": {
                     "request": {
                         "set": {
