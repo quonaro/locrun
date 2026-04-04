@@ -11,7 +11,9 @@ services:
       - "${SSH_PORT:-22}:22"
     volumes:
       - ssh_keys:/home/tun/.ssh/
+      - ssh_host_keys:/etc/ssh/
     restart: unless-stopped
 
 volumes:
   ssh_keys:
+  ssh_host_keys:
