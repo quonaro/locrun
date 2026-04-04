@@ -37,7 +37,7 @@ def notify_ssl_check(domain, add=True):
 def get_ssh_tunnel_port():
     """
     Находит порт туннеля, выделенный текущей SSH-сессией.
-    SSH remote forward обычно слушает на 0.0.0.0, ищем такие порты.
+    Ищем все порты >= 10000 на любых интерфейсах.
     """
     for _ in range(15):
         time.sleep(0.3)
@@ -52,14 +52,6 @@ def get_ssh_tunnel_port():
                     if len(parts) < 4:
                         continue
                     local_addr = parts[3]
-                    # Ищем порты на 0.0.0.0 (all interfaces) или ::: (IPv6)
-                    # SSH remote forward обычно слушает везде, а не на localhost
-                    if not (
-                        local_addr.startswith("0.0.0.0:")
-                        or local_addr.startswith("*:")
-                        or local_addr.startswith("::")
-                    ):
-                        continue
                     port_str = local_addr.split(":")[-1].strip("]")
                     if port_str.isdigit():
                         p = int(port_str)
@@ -93,7 +85,7 @@ def manage_caddy_route(route_id, domain, port, delete=False):
         "handle": [
             {
                 "handler": "reverse_proxy",
-                "upstreams": [{"dial": f"127.0.0.1:{port}"}],
+                "upstreams": [{"dial": f"localhost:{port}"}],
                 "headers": {
                     "request": {
                         "set": {
@@ -107,17 +99,43 @@ def manage_caddy_route(route_id, domain, port, delete=False):
         "terminal": True,
     }
 
+    # HTTP payload (без TLS заголовков)
+    payload_http = {
+        "@id": route_id,
+        "match": [{"host": [domain]}],
+        "handle": [
+            {
+                "handler": "reverse_proxy",
+                "upstreams": [{"dial": f"localhost:{port}"}],
+                "headers": {
+                    "request": {
+                        "set": {
+                            "X-Real-IP": ["{http.request.remote.host}"],
+                            "X-Forwarded-Proto": ["http"],
+                        }
+                    }
+                },
+            }
+        ],
+        "terminal": True,
+    }
+
     try:
-        # Вставляем роут в начало списка сервера 'srv0'
-        # Убедись, что в Caddyfile нет конфликтующих имен серверов
-        r = requests.post(
-            f"{CADDY_API}/config/apps/http/servers/srv0/routes/0",
-            json=payload,
-            timeout=2,
-        )
-        return r.status_code in [200, 201, 204]
+        # Создаём роуты для обоих серверов (srv0 = HTTPS, srv1 = HTTP)
+        for server, payload in [("srv0", payload), ("srv1", payload_http)]:
+            r = requests.post(
+                f"{CADDY_API}/config/apps/http/servers/{server}/routes/0",
+                json=payload,
+                timeout=2,
+            )
+            if r.status_code not in [200, 201, 204]:
+                print(
+                    f"⚠️ Failed to add route to {server}: {r.status_code}",
+                    file=sys.stderr,
+                )
+        return True
     except Exception as e:
-        print(f"❌ Caddy API Error: {e}")
+        print(f"❌ Caddy API Error: {e}", file=sys.stderr)
         return False
 
 
