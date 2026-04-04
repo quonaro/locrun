@@ -20,4 +20,4 @@ Match User tun
     AllowAgentForwarding no
     AllowTcpForwarding yes
     GatewayPorts yes
-    ForceCommand /app/handler.py
+    ForceCommand /app/handler-wrapper.sh

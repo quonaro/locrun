@@ -21,11 +21,12 @@ RUN adduser -D -s /bin/bash tun && \
 
 # Копируем конфиги
 COPY handler.py .
+COPY handler-wrapper.sh /app/handler-wrapper.sh
 COPY sshd_config /etc/ssh/sshd_config
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY start.sh /app/start.sh
 
-RUN chmod +x /app/start.sh /app/handler.py
+RUN chmod +x /app/start.sh /app/handler.py /app/handler-wrapper.sh
 
 # Открываем порты (22 — внутренний для контейнера)
 EXPOSE 80 443 22
