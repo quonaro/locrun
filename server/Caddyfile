@@ -1,41 +1,41 @@
 {
-	servers {
-		protocols h1
-	}
-	admin localhost:2019
-	# Настройка On-Demand TLS: Caddy спросит у Python, можно ли выписывать SSL
-	on_demand_tls {
-		ask http://127.0.0.1:8080/check
-	}
-	# Отключаем автоматический HTTP->HTTPS редирект
-	auto_https off
+	email danierudai@gmail.com
+	# Эта опция глобально отключает автоматические редиректы, 
+	# если они мешают в других блоках
+	auto_https disable_redirects
 }
 
-# HTTP блок для ACME challenges
-:80 {
-	# Handle ACME challenges
-	handle /.well-known/acme-challenge/* {
-		respond "ACME Challenge" 200
-	}
-	# Все остальные запросы обрабатываются динамически через API
-	# Если роут не создан - будет ответ 404 от Caddy
-}
-
-https:// {
+# Блок для Google CA (test, app, dev)
+http://test.locrun.su, https://test.locrun.su,
+http://app.locrun.su, https://app.locrun.su,
+http://dev.locrun.su, https://dev.locrun.su {
 	tls {
-		on_demand
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+		ca https://dv.acme-v02.api.pki.goog/directory
 	}
 
-	# Логирование
-	log {
-		output file /var/log/caddy/access.log
+	reverse_proxy localhost:8080 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# Блок для Wildcard (Let's Encrypt)
+http://*.locrun.su, https://*.locrun.su {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
 
-	# Важно: Caddy сам по себе ничего не проксирует.
-	# Роуты (reverse_proxy) будут добавляться ДИНАМИЧЕСКИ через Python API (manage_caddy)
-	handle {
-		# Если для этого хоста Python еще не создал динамический роут через API,
-		# то запрос попадет сюда и будет сброшен.
-		abort
+	reverse_proxy localhost:8080 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
 	}
+}
+
+# Корень
+http://locrun.su, https://locrun.su {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	respond "Locrun Service Active (HTTP/HTTPS)" 200
 }

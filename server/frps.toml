@@ -1,0 +1,3 @@
+bindPort = 7000
+vhostHTTPPort = 8080
+auth.token = "5d17e240be23091b8de49504a985070cbd08987d62e373c1682ef881ae1604ec"

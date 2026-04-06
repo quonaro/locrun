@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# --- КОНФИГУРАЦИЯ (Впиши свои данные!) ---
+SERVER_IP="YOURSERVERIP"
+SERVER_PORT=7000
+TOKEN="YOURTOKEN"
+DOMAIN="YOURDOMAIN"
+
+SUBDOMAIN=$1
+LOCAL_PORT=$2
+
+if [[ -z "$SUBDOMAIN" || -z "$LOCAL_PORT" ]]; then
+    echo -e "\e[31mОшибка: Используй 'locrun <subdomain> <port>'\e[0m"
+    echo "Пример: locrun test 3000"
+    exit 1
+fi
+
+TMP_CONFIG="/tmp/frpc_$SUBDOMAIN.toml"
+
+cat <<EOF > "$TMP_CONFIG"
+serverAddr = "$SERVER_IP"
+serverPort = $SERVER_PORT
+auth.token = "$TOKEN"
+
+[[proxies]]
+name = "$SUBDOMAIN"
+type = "http"
+localPort = $LOCAL_PORT
+customDomains = ["$SUBDOMAIN.$DOMAIN"]
+EOF
+
+
+# --- Конфигурация ---
+WIDTH=60
+COL=$((WIDTH + 1)) # Колонка для правой границы
+URL_HTTPS="https://$SUBDOMAIN.$DOMAIN"
+URL_HTTP="http://$SUBDOMAIN.$DOMAIN"
+LOCAL="localhost:$LOCAL_PORT"
+SERVER="$SERVER_IP:$SERVER_PORT"
+
+# Функция для отрисовки строки с правой границей
+draw_row() {
+    local icon=$1
+    local label=$2
+    local value=$3
+    # Печатаем контент, а затем ставим правую стенку в колонку $COL
+    echo -ne "\e[1;34m│\e[0m  $icon \e[1m$label\e[0m $value"
+    echo -e "\e[${COL}G\e[1;34m│\e[0m"
+}
+
+# Отрисовка горизонтальных линий
+line_top="╭$(printf '─%.0s' $(seq 1 $((WIDTH-1))))╮"
+line_mid="├$(printf '─%.0s' $(seq 1 $((WIDTH-1))))┤"
+line_bot="╰$(printf '─%.0s' $(seq 1 $((WIDTH-1))))╯"
+
+# --- ВЫВОД ---
+clear
+echo -e "\e[1;34m$line_top\e[0m"
+
+# Заголовок
+echo -ne "\e[1;34m│\e[0m   🚀 \e[1;32mLOCRUN TUNNEL ACTIVE\e[0m"
+echo -e "\e[${COL}G\e[1;34m│\e[0m"
+
+echo -e "\e[1;34m$line_mid\e[0m"
+
+# Данные
+draw_row "🔗" "HTTPS: " "\e[4;36m$URL_HTTPS\e[0m"
+draw_row "🌐" "HTTP:  " "\e[36m$URL_HTTP\e[0m"
+draw_row "🏠" "Local: " "\e[1;33m$LOCAL\e[0m"
+draw_row "📡" "Server:" "$SERVER"
+
+echo -e "\e[1;34m$line_mid\e[0m"
+
+# Инструкция
+echo -ne "\e[1;34m│\e[0m  \e[3mНажмите \e[1;31mCtrl+C\e[3m, чтобы остановить\e[0m"
+echo -e "\e[${COL}G\e[1;34m│\e[0m"
+
+echo -e "\e[1;34m$line_bot\e[0m"
+
+frpc -c "$TMP_CONFIG"
+
+frpc -c "$TMP_CONFIG"
+
+rm -f "$TMP_CONFIG"
